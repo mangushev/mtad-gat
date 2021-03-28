@@ -3,7 +3,7 @@
 Please visit <a href="https://github.com/mangushev/mtad-gat">repository</a> to review sources.
 
 
-Implementation of MTAD-GAT: Multivariate Time-series Anomaly Detection viaGraph Attention Network
+Implementation of MTAD-GAT: Multivariate Time-series Anomaly Detection via Graph Attention Network
 
 https://arxiv.org/pdf/2009.02040.pdf
 

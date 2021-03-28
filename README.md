@@ -1,5 +1,5 @@
 # mtad-tf
-Implementation of MTAD-GAT: Multivariate Time-series Anomaly Detection viaGraph Attention Network
+Implementation of MTAD-GAT: Multivariate Time-series Anomaly Detection via Graph Attention Network
 
 https://arxiv.org/pdf/2009.02040.pdf
 
