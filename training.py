@@ -71,7 +71,8 @@ def model_fn_builder(init_checkpoint, learning_rate, num_train_steps, use_tpu):
       gru_act_fn=tf.math.tanh,
       initializer_range=params["initializer_range"],
       dropout_prob=params["dropout_prob"],
-      is_training=is_training)
+      is_training=is_training,
+      run_mode=params["run_mode"])
 
     #(A) --> (1)
     total_loss = tf.reduce_mean(model.per_example_loss)
@@ -86,7 +87,9 @@ def model_fn_builder(init_checkpoint, learning_rate, num_train_steps, use_tpu):
 
       #calculated_learning_rate = tf.math.maximum(learning_rate * tf.math.pow(0.895, tf.cast(tf.compat.v1.train.get_global_step() / 1000, tf.float32)), 5e-6)
 
-      calculated_learning_rate = tf.compat.v1.train.exponential_decay(learning_rate, tf.compat.v1.train.get_global_step(), 1000, 0.895, staircase=False)
+      #calculated_learning_rate = tf.compat.v1.train.exponential_decay(learning_rate, tf.compat.v1.train.get_global_step(), 1000, 0.895, staircase=False)
+
+      calculated_learning_rate = tf.compat.v1.train.exponential_decay(learning_rate, tf.compat.v1.train.get_global_step(), 1000, 1.0, staircase=False)
 
       effective_learning_rate = calculated_learning_rate
 
@@ -116,8 +119,15 @@ def model_fn_builder(init_checkpoint, learning_rate, num_train_steps, use_tpu):
 
       training_hooks = None
       if not FLAGS.use_tpu:
-        #logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, "reconstruction_log_prob": tf.reduce_mean(model.reconstruction_log_probability), "-Dkl": tf.reduce_mean(model.minusDkl), "lr": effective_learning_rate, "step": tf.train.get_global_step()}, every_n_iter=1)
-        logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, "reconstruction_log_prob": total_loss, "-Dkl": total_loss, "lr": effective_learning_rate, "step": tf.train.get_global_step()}, every_n_iter=1)
+        if FLAGS.run_mode == 'FORECASTING':
+          logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, "lr": effective_learning_rate, "step": tf.train.get_global_step(), "forecasting_loss": tf.reduce_mean(model.forecasting_loss)}, every_n_iter=1)
+        elif FLAGS.run_mode == 'RECONSTRUCTING':
+          logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, "reconstruction_log_prob": tf.reduce_mean(model.reconstruction_log_probability), "-Dkl": tf.reduce_mean(model.minusDkl), "lr": effective_learning_rate, "step": tf.train.get_global_step(), "reconstruction_loss": tf.reduce_mean(model.reconstruction_loss)}, every_n_iter=1)
+        else:
+          logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, "reconstruction_log_prob": tf.reduce_mean(model.reconstruction_log_probability), "-Dkl": tf.reduce_mean(model.minusDkl), "lr": effective_learning_rate, "step": tf.train.get_global_step(), "reconstruction_loss": tf.reduce_mean(model.reconstruction_loss), "forecasting_loss": tf.reduce_mean(model.forecasting_loss)}, every_n_iter=1)
+
+        #temporary to finish reconstruction training
+        #logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, "reconstruction_log_prob": total_loss, "-Dkl": total_loss, "lr": effective_learning_rate, "step": tf.train.get_global_step()}, every_n_iter=1)
         training_hooks = [logging_hook]
 
       output_spec = tf.compat.v1.estimator.tpu.TPUEstimatorSpec(
@@ -152,25 +162,28 @@ def model_fn_builder(init_checkpoint, learning_rate, num_train_steps, use_tpu):
           scaffold_fn=None)
 
     else:
-      if params["prediction_task"] == "RMS_loss":
-        output_spec = tf.compat.v1.estimator.tpu.TPUEstimatorSpec(
-          mode=mode,
-          predictions={'RMS_loss': model.per_example_loss
-                      })
-      elif params["prediction_task"] == "EVALUATE":
-        output_spec = tf.compat.v1.estimator.tpu.TPUEstimatorSpec(
-          mode=mode,
-          predictions={'predicted': tf.cast(tf.math.greater(model.per_example_loss, params["threshold"]), tf.int32),
-                       'label': anomaly
-                    })
-      else:
-        output_spec = tf.compat.v1.estimator.tpu.TPUEstimatorSpec(
-          mode=mode,
-          predictions={'anomaly': tf.cast(tf.math.greater(model.per_example_loss, params["threshold"]), tf.int32)
-                    })
+      predictions = {}
+      if params["run_mode"] == 'FORECASTING' or params["run_mode"] == 'BOTH':
+        predictions['forecasting_score'] = model.forecasting_score
+      if params["run_mode"] == 'RECONSTRUCTING' or params["run_mode"] == 'BOTH':
+        predictions['reconstructing_score'] = model.reconstructing_score
+      predictions['label'] = anomaly
+      output_spec = tf.compat.v1.estimator.tpu.TPUEstimatorSpec(
+        mode=mode,
+        predictions=predictions)
     return output_spec 
 
   return model_fn   
+
+#returns between 0 and 1
+def scale01(data):
+
+  epsilon = 1e-14
+
+  max = np.max(data)
+  min = np.min(data)
+
+  return (data - min) / (max - min + epsilon)
 
 def main():
   tf.logging.set_verbosity(tf.logging.INFO)
@@ -231,7 +244,8 @@ def main():
         "dropout_prob": FLAGS.dropout_prob,
         "use_tpu": FLAGS.use_tpu,
         "prediction_task": FLAGS.prediction_task,
-        "threshold": FLAGS.threshold
+        "threshold": FLAGS.threshold,
+        "run_mode": FLAGS.run_mode
     })
 
   if FLAGS.action == 'TRAIN':
@@ -248,28 +262,41 @@ def main():
     predict_drop_remainder = True if FLAGS.use_tpu else False
     results = estimator.predict(input_fn=make_input_fn(FLAGS.test_file, is_training=False, drop_reminder=predict_drop_remainder))
 
-    if FLAGS.prediction_task == 'RMS_loss':
-      output_predict_file = os.path.join("./", "RMS_loss.csv")
-      with tf.gfile.GFile(output_predict_file, "w") as writer:
-        for prediction in results:
-          writer.write(str(prediction["RMS_loss"]) + "\n")
+    scores = list(results)
+    if FLAGS.run_mode == 'FORECASTING':
+      score_with_features = scale01(np.array([prediction['forecasting_score'] for prediction in scores]))
+      #print (repr(score_with_features))
+    elif FLAGS.run_mode == 'RECONSTRUCTING':
+      score_with_features = scale01(np.array([prediction['reconstructing_score'] for prediction in scores]))
+    elif FLAGS.run_mode == 'BOTH':
+      forecasting_score = scale01(np.array([prediction['forecasting_score'] for prediction in scores]))
+      reconstructing_score = scale01(np.array([prediction['reconstructing_score'] for prediction in scores]))
+      score_with_features = (forecasting_score + FLAGS.gamma*reconstructing_score) / (1 + FLAGS.gamma)
+
+    print ("FORE", repr(forecasting_score))
+    print ("RECO", repr(reconstructing_score))
+
+    #[A, k/m] --> [A]
+    inference_score = np.sum(score_with_features, axis=-1, keepdims=False)
+
+    if FLAGS.prediction_task == 'inference_score':
+      output_predict_file = os.path.join("./", "inference_score.csv")
+      with tf.io.gfile.GFile(output_predict_file, "w") as writer:
+        for s in inference_score:
+          writer.write(str(s) + "\n")
     elif FLAGS.prediction_task == 'EVALUATE':
-      labels = []
-      anomalies = []
-      for prediction in results:
-        labels.append(prediction["label"])
-        anomalies.append(prediction["predicted"])
-
+      labels = [prediction['label'] for prediction in scores]
+      anomalies = (inference_score > FLAGS.threshold).astype(int)
       metrics = calculate_metrics(anomalies, labels, True)
-
       tf.logging.info("  %s = %s", "threshold", FLAGS.threshold)
-      for key in sorted(metrics.keys()):
+      for key in sorted(metrics.keys()):  
         tf.logging.info("  %s = %s", key, str(metrics[key]))
     else:
+      anomalies = (inference_score > FLAGS.threshold).astype(int)
       output_predict_file = os.path.join("./", "Anomaly.csv")
-      with tf.gfile.GFile(output_predict_file, "w") as writer:
-        for prediction in results:
-          writer.write(str(prediction["anomaly"]) + "\n")
+      with tf.io.gfile.GFile(output_predict_file, "w") as writer:
+        for a in anomalies:
+          writer.write(str(a) + "\n")
 
 if __name__ == '__main__':
 
@@ -285,7 +312,7 @@ if __name__ == '__main__':
             help='Test file location in google storage.')
     parser.add_argument('--dropout_prob', type=float, default=0.0,
             help='This used for all dropouts.')
-    parser.add_argument('--num_train_steps', type=int, default=50000,
+    parser.add_argument('--num_train_steps', type=int, default=350000,
             help='Number of steps to run trainer.')
     parser.add_argument('--iterations_per_loop', type=int, default=1000,
             help='Number of iterations per TPU training loop.')
@@ -309,9 +336,9 @@ if __name__ == '__main__':
             help='Number of cores on TPU.')
     parser.add_argument('--tpu_zone', type=str, default='us-central1-c',
             help='TPU instance zone location.')
-    parser.add_argument('--learning_rate', type=float, default=1e-3,
+    parser.add_argument('--learning_rate', type=float, default=5e-6,
             help='Optimizer learning rate.')
-    parser.add_argument('--clip_gradients', type=float, default=-1.,
+    parser.add_argument('--clip_gradients', type=float, default=0.1,
             help='Clip gradients to deal with explosive gradients.')
     parser.add_argument('--random_seed', type=int, default=123,
             help='Random seed to initialize values in a grath. It will produce the same results only if data and grath did not change in any way.')
@@ -321,7 +348,9 @@ if __name__ == '__main__':
             help='Enable excessive variables screen outputs.')
     parser.add_argument('--action', default='PREDICT', choices=['TRAIN','EVALUATE','PREDICT'],
             help='An action to execure.')
-    parser.add_argument('--prediction_task', default=None, choices=['RMS_loss', 'EVALUATE'],
+    parser.add_argument('--run_mode', default='BOTH', choices=['FORECASTING','RECONSTRUCTING','BOTH'],
+            help='An action to execure.')
+    parser.add_argument('--prediction_task', default=None, choices=['inference_score', 'EVALUATE'],
             help='Values to predict.')
     parser.add_argument('--restore', default=False, action='store_true',
             help='Restore last checkpoint.')
@@ -344,7 +373,7 @@ if __name__ == '__main__':
 
     FLAGS, unparsed = parser.parse_known_args()
 
-    if FLAGS.threshold is None and (FLAGS.action== "EVALUATE" or FLAGS.action == "PREDICT" and FLAGS.prediction_task != "RMS_loss"):
+    if FLAGS.threshold is None and (FLAGS.action== "EVALUATE" or FLAGS.action == "PREDICT" and FLAGS.prediction_task != "RMS_loss" and FLAGS.prediction_task != "inference_score"):
       tf.logging.error("EVAL and PREDICT need threshold value")
       sys.exit()
 

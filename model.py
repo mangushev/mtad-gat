@@ -205,8 +205,6 @@ def GAT(input_tensor, num_nodes, node_size, initializer_range, gat_id):
 
 #returns probability of every feature
 def pdf(data, mu, var):
-  import math
-
   pi = tf.constant(math.pi, dtype=tf.float32)
   #var usually 1e-1 - 1e-2
   epsilon = tf.constant(1e-14, dtype=tf.float32)
@@ -241,7 +239,8 @@ class MtadGat(object):
                gru_act_fn=tf.math.tanh,
                initializer_range=0.02,
                dropout_prob=0.1,
-               is_training=True):
+               is_training=True,
+               run_mode='BOTH'):
     #[A, w, k/m]
     input_shape = get_shape_list(input_tensor, expected_rank=3)
     batch_size = input_shape[0]
@@ -286,12 +285,12 @@ class MtadGat(object):
       feature_gat_input = tf.transpose(conv1d_output, [0, 2, 1], name='feature_gat_input')
       feature_gat_output1 = GAT(feature_gat_input, num_features, window_size, initializer_range, 1)
       #[A, k/m, n/w] --> [A, n/w, k/m]
-      _feature_gat_output = tf.transpose(feature_gat_output1, [0, 2, 1], name='feature_gat_output')
-      feature_gat_output = tf.Print(_feature_gat_output, [_feature_gat_output], "_feature_gat_output", summarize=1000)
+      feature_gat_output = tf.transpose(feature_gat_output1, [0, 2, 1], name='feature_gat_output')
+      #feature_gat_output = tf.Print(_feature_gat_output, [_feature_gat_output], "_feature_gat_output", summarize=1000)
 
       #[A, n/w, k/m] --> [A, n/w, k/m]
-      _temporal_gat_output = GAT(conv1d_output, window_size, num_features, initializer_range, 2)
-      temporal_gat_output = tf.Print(_temporal_gat_output, [_temporal_gat_output], "_temporal_gat_output", summarize=1000)
+      temporal_gat_output = GAT(conv1d_output, window_size, num_features, initializer_range, 2)
+      #temporal_gat_output = tf.Print(_temporal_gat_output, [_temporal_gat_output], "_temporal_gat_output", summarize=1000)
 
       #[A, n/w, k/m] concat [A, n/w, k/m] concat [A, n/w, k/m] --> [A, n/w, 3k/m]
       concat_output1 = tf.concat([feature_gat_output, temporal_gat_output, conv1d_output], 2, name='concat_all')
@@ -368,18 +367,16 @@ class MtadGat(object):
 
       #encoder_input = tf.Print(_encoder_input, [_encoder_input], "_encoder_input", summarize=1000)
 
-      z_size = 18
-
       #calulate phi parameters
       #[A, n/w, k/m] --> [A, n/w, z]
-      encoder_h = dense_layer(encoder_input, z_size, activation=tf.nn.tanh, initializer=create_initializer(initializer_range), name="encoder_h")
+      encoder_h = dense_layer(encoder_input, d3, activation=tf.nn.tanh, initializer=create_initializer(initializer_range), name="encoder_h")
       #encoder_h = tf.Print(_encoder_h, [_encoder_h], "_encoder_h", summarize=1000)
 
       #[A, n/w, 3] --> [A, n/w, z]
-      encoder_mu = dense_layer(encoder_h, z_size, activation=None, initializer=create_initializer(initializer_range), name="encoder_mu")
+      encoder_mu = dense_layer(encoder_h, d3, activation=None, initializer=create_initializer(initializer_range), name="encoder_mu")
       #encoder_mu = tf.Print(_encoder_mu, [_encoder_mu], "_encoder_mu", summarize=1000)
       #[A, n/w, 3] --> [A, n/w, z]
-      encoder_log_variance = dense_layer(encoder_h, z_size, activation=None, initializer=create_initializer(initializer_range), name="encoder_variance")
+      encoder_log_variance = dense_layer(encoder_h, d3, activation=None, initializer=create_initializer(initializer_range), name="encoder_variance")
       #encoder_log_variance = tf.Print(_encoder_log_variance, [_encoder_log_variance], "_encoder_variance", summarize=1000)
 
       encoder_variance = tf.math.exp(encoder_log_variance)
@@ -389,7 +386,7 @@ class MtadGat(object):
       #encoder_scale = tf.Print(_encoder_scale, [_encoder_scale], "_encoder_scale", summarize=1000)
 
       #[A, n/w, z]
-      epsilon_sampler = tf.random.normal([batch_size, window_size, z_size], mean=0.0, stddev=1.0, dtype=tf.dtypes.float32, name='epsilon')
+      epsilon_sampler = tf.random.normal([batch_size, window_size, d3], mean=0.0, stddev=1.0, dtype=tf.dtypes.float32, name='epsilon')
 
       #g(.) =location+scale*epsilon
       #use phi parameters
@@ -416,34 +413,43 @@ class MtadGat(object):
 
       #[A, n/w, k/m] --> [A, n/w]
       # this is an estimate P teta given z total product
-      reconstruction_log_probability = tf.reduce_sum(tf.math.log(feature_probability + tf.constant(1e-35, dtype=tf.float32)), axis=-1, keepdims=False)
-      #reconstruction_log_probability = tf.Print(_reconstruction_log_probability, [_reconstruction_log_probability], "_reconstruction_log_probability", summarize=1000)
-      self._reconstruction_log_probability = tf.reduce_sum(reconstruction_log_probability, axis=-1, keepdims=False)
+      _reconstruction_log_probability = tf.reduce_sum(tf.math.log(feature_probability + tf.constant(1e-35, dtype=tf.float32)), axis=-1, keepdims=False)
+      #reconstruction_log_probability = tf.Print(_reconstruction_log_probability, [_reconstruction_log_feature_probability], "_reconstruction_log_feature_probability", summarize=1000)
+      #[A, n/w] --> [A]
+      self._reconstruction_log_probability = tf.reduce_sum(_reconstruction_log_probability, axis=-1, keepdims=False)
 
       #[A, n/w, z] --> [A, n/w]
       #this is -Dkl formula
       minusDkl = tf.reduce_sum(((1 + tf.math.log(tf.math.square(encoder_scale))) - tf.math.square(encoder_mu) - tf.math.square(encoder_scale)) / 2, axis=-1, keepdims=False)
       #minusDkl = tf.Print(_minusDkl, [_minusDkl], "_minusDkl", summarize=1000)
+      #[A, n/w] --> [A]
       self._minusDkl = tf.reduce_sum(minusDkl, axis=-1, keepdims=False)
 
       #reconstraction loss is negated lower bound [ELBO]
-      #[A, n/w], [A, n/w] --> [A]
+      #[A], [A] --> [A]
       _reconstruction_loss1 = -(self._reconstruction_log_probability + self._minusDkl)
 
     #6). Combined per example loss
     #[A], [A] --> [A]
     self._reconstruction_loss = print_shape(_reconstruction_loss1, 1, "_reconstruction_loss shape")
     #self._reconstruction_loss = tf.Print(_reconstruction_loss2, [_reconstruction_loss2], "_reconstruction_loss", summarize=1000)
-    #self._per_example_loss = self._forecasting_loss + _reconstruction_loss
-    self._per_example_loss = self._forecasting_loss
-    #self._per_example_loss = self._reconstruction_loss
+
+    if run_mode == 'FORECASTING':
+      self._per_example_loss = self._forecasting_loss
+    elif run_mode == 'RECONSTRUCTING':
+      self._per_example_loss = self._reconstruction_loss
+    else:
+      self._per_example_loss = self._forecasting_loss + self._reconstruction_loss
 
     #7). inference score
     #[A, n/w, k/m] --> [A, k/m]
-    last_feature_probability = feature_probability[:, -1, :]
+    self._reconstruction_anomaly_probability = -tf.reduce_sum(tf.math.log(feature_probability + tf.constant(1e-35, dtype=tf.float32)), axis=1, keepdims=False)
 
-    #[A, k/m], [A, k/m] --> [A, k/m]
-    self._inference_score = tf.reduce_sum((tf.math.squared_difference(label, next_feature) + gamma*(1-last_feature_probability)) / (1 + gamma), axis=-1, keepdims=False)
+    #[A, k/m --> [A, k/m]
+    if run_mode == 'FORECASTING' or run_mode == 'BOTH':
+      self._forecasting_score = tf.math.squared_difference(label, next_feature)
+    if run_mode == 'RECONSTRUCTING' or run_mode == 'BOTH':
+      self._reconstructing_score = self._reconstruction_anomaly_probability
 
   @property
   def forecasting_loss(self):
@@ -466,5 +472,9 @@ class MtadGat(object):
     return self._per_example_loss
 
   @property
-  def inference_score(self):
-    return self._inference_score
+  def forecasting_score(self):
+    return self._forecasting_score
+
+  @property
+  def reconstructing_score(self):
+    return self._reconstructing_score
