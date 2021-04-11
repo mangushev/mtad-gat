@@ -4,12 +4,20 @@ Implementation of MTAD-GAT: Multivariate Time-series Anomaly Detection via Graph
 https://arxiv.org/pdf/2009.02040.pdf
 
 
-This is a work in progress
+this is draft. both forecasting and reconstraction modes are trainable separately. forecasting only gives good results, reconstruction only is not as good as i see for now. combined training works, but i did not do it yet.
 
 Notes:
 
-- both feature & temporal GATs are tested with forecasting. It seems to perform better compare to mtad-tf. But this is just preliminary
+- run_mode flag to specify to train or predict in FORECASTING, RECONSTRUCTING or BOTH . if mode is trained in FORECASTING , it does not make any sense to predict other than FORECASTING and same about other modes
 
-- I found training is quite tricky. Temporal GAT sigmoid produces 0.5 or 1. I solved it only with low training rate and clipping gradients
+- clip gradients is set to 0.1 and learning rate 5e-6
 
-- I did VAE but I do not see how bottleneck can be 300. Also, fprecasting loss is MSR, but VAE reconstruction is pdf and so loss values are very different.
+- d3 is 18 kind of half of 38 features I use in computer data set
+
+- reconstruction pdf taken and used for every time point in a time series, not just last one
+
+- if reconstruction, anomaly log pdf is -reconstruction log pdf. it is not 1 - pdf
+
+- to calculate combined score , anomaly log pdf is calculated as explaned above. both forecasting  square difference and reconstruction anomaly pdf are scaled to a range 0-1 and features are summed. gamma can be used to give more weight to forecasting or reconstracting. combined score can be used to show which feature caused anomaly the most. 
+
+- final score is total of all feature scores. this is compared against threshold
