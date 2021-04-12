@@ -48,6 +48,8 @@ python prepare_data.py --files_path=ServerMachineDatasettest --label_path=Server
 
 3. Decide the mode of the model. Train model for each machine dataset, 28 of them. Farecasting seems 30k steps works. RECONSTRUCTING - it took 300k. BOTH, I did not do it yet. Models sometimes deviate to NaN during backpropagation, so I just restart it.
 
+See loss for FORECASTING and RECONSTRACTING in samples folder
+
 for c in {1..100}; do echo $c; time python training.py --action=TRAIN --train_file=gs://anomaly_detection/mtad_gat/data/train/machine-1-1.tfrecords --output_dir=gs://anomaly_detection/mtad_gat/output/machine-1-1-fore --run_mode=FORECASTING --num_train_steps=30000; done
 
 for c in {1..100}; do echo $c; time python training.py --action=TRAIN --train_file=gs://anomaly_detection/mtad_gat/data/train/machine-1-1.tfrecords --output_dir=gs://anomaly_detection/mtad_gat/output/machine-1-1-reco --run_mode=RECONSTRACTING --num_train_steps=300000; done
@@ -55,6 +57,8 @@ for c in {1..100}; do echo $c; time python training.py --action=TRAIN --train_fi
 for c in {1..100}; do echo $c; time python training.py --action=TRAIN --train_file=gs://anomaly_detection/mtad_gat/data/train/machine-1-1.tfrecords --output_dir=gs://anomaly_detection/mtad_gat/output/machine-1-1-both --run_mode=BOTH --num_train_steps=300000; done
 
 4. Produce scores file - inference_score.csv. Use this file to calculate calculate threshold using POT
+
+See graphs for machine-1-1 for FORECASTING and RECONSTRACTING in samples folder
 
 python training.py --action=PREDICT --test_file=gs://anomaly_detection/mtad_gat/data/test/machine-1-1.tfrecords --output_dir=gs://anomaly_detection/mtad_gat/output/machine-1-1-fore --prediction_task=inference_score --run_mode=FORECASTING
 
@@ -72,6 +76,8 @@ Anomaly Evaluation
 I do not use Estimator EVAL to do this since I use an adjustment procedure. I use this same simple omnianomaly approach. If we predicted anomaly and it is within some anomaly segment, whole segment becomes correctly predicted. I do not use a prediction latency (delta) value as in some other papers. Also, I think practically, if we flagged anomaly earlier compare to actual anomaly label, it could be considered hit maybe using some delta as well. I did not do this way here. Please see samples folder for evaluations for machine dataset 1-1, 1-2 and 1-3
 
 You must provide your threshold values
+
+See evaluation metrics for machine-1-1 for FORECASTING in samples folder
 
 python training.py --action=PREDICT --test_file=gs://anomaly_detection/mtad_gat/data/test/machine-1-1.tfrecords --output_dir=gs://anomaly_detection/mtad_tf/output/machine-1-1-fore --threshold=1.5547085 --prediction_task=EVALUATE --run_mode=FORECASTING
 
