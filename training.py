@@ -273,9 +273,6 @@ def main():
       reconstructing_score = scale01(np.array([prediction['reconstructing_score'] for prediction in scores]))
       score_with_features = (forecasting_score + FLAGS.gamma*reconstructing_score) / (1 + FLAGS.gamma)
 
-    print ("FORE", repr(forecasting_score))
-    print ("RECO", repr(reconstructing_score))
-
     #[A, k/m] --> [A]
     inference_score = np.sum(score_with_features, axis=-1, keepdims=False)
 
