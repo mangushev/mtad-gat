@@ -31,6 +31,8 @@ Notes:
 
 - I am discussing SMD only, but MSL and SMAP should be used as well
 
+- jupyter needs to be adjuster for concrete logs and paths
+
 
 Future experiments:
 
@@ -51,7 +53,7 @@ python prepare_data.py --files_path=ServerMachineDatasettest --label_path=Server
 
 3. Decide the mode of the model. Train model for each machine dataset, 28 of them. Farecasting seems 30k steps works. RECONSTRUCTING and BOTH  - it took 300k. Models sometimes deviate to NaN during backpropagation, so I just restart it.
 
-See losses in samples folder
+See losses in samples folder. Use provuded jupyternotebook, but adjust field positions, paths.
 
 for c in {1..100}; do echo $c; time python training.py --action=TRAIN --train_file=gs://anomaly_detection/mtad_gat/data/train/machine-1-1.tfrecords --output_dir=gs://anomaly_detection/mtad_gat/output/machine-1-1-fore --run_mode=FORECASTING --num_train_steps=30000; done
 
@@ -71,7 +73,7 @@ python training.py --action=PREDICT --test_file=gs://anomaly_detection/mtad_gat/
 
 5. Use my another repository EVT_POT to calculate threshold. inference_score.csv is an input for that
 
-6. Use notebook to grath inference_score.csv, initial threshold, POT and Best threshold. Adjust those values in the notebook
+6. Adjust and use jupyter notebook to grath inference_score.csv, initial threshold, POT and Best threshold. Adjust those values in the notebook
 
 
 Anomaly Evaluation
