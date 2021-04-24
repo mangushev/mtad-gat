@@ -40,7 +40,7 @@ Notes:
 
 Future experiments:
 
-- bottleneck on VAE is 18 considering SMD 38 features. Different value can be experimented with
+- bottleneck on VAE is 18 considering SMD 38 features. Different value can be experimented with. Paper specifies 300 bottleneck size, I didn't get it
 
 - training often gets into NaN cuased by backptopagation. I just restart in a loop. Gradient clipping and learning rate helps. May be some optimizer parameters could help further
 
