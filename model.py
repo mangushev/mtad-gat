@@ -443,7 +443,8 @@ class MtadGat(object):
 
     #7). inference score
     #[A, n/w, k/m] --> [A, k/m]
-    self._reconstruction_anomaly_probability = -tf.reduce_sum(tf.math.log(feature_probability + tf.constant(1e-35, dtype=tf.float32)), axis=1, keepdims=False)
+    #self._reconstruction_anomaly_probability = -tf.reduce_sum(tf.math.log(feature_probability + tf.constant(1e-35, dtype=tf.float32)), axis=1, keepdims=False)
+    self._reconstruction_anomaly_probability = -tf.math.log(feature_probability[:, -1, :] + tf.constant(1e-35, dtype=tf.float32))
 
     #[A, k/m --> [A, k/m]
     if run_mode == 'FORECASTING' or run_mode == 'BOTH':
